@@ -1,0 +1,67 @@
+name: Build AflatoonSuite
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          brew update
+          brew install ldid make dpkg
+
+      - name: Install Theos
+        run: |
+          git clone --recursive --depth 1 https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+
+      - name: Show environment
+        run: |
+          xcodebuild -version || true
+          xcrun --sdk iphoneos --show-sdk-path || true
+          gmake --version | head -1
+          ls -la
+          ls -la libs 2>/dev/null || echo "libs/ غير موجود: سيُبنى المشروع بدون NTgCalls"
+
+      - name: Build
+        run: |
+          set -o pipefail
+          export THEOS="$HOME/theos"
+          gmake clean || true
+          gmake package FINALPACKAGE=1 2>&1 | tee build.log
+
+      - name: Collect output
+        run: |
+          mkdir -p out
+          find .theos -name "AflatoonSuite.dylib" -exec cp {} out/ \;
+          find packages -name "*.deb" -exec cp {} out/ \; 2>/dev/null || true
+          ls -la out
+          test -f out/AflatoonSuite.dylib
+          file out/AflatoonSuite.dylib
+          lipo -info out/AflatoonSuite.dylib
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: AflatoonSuite
+          path: out/*
+          if-no-files-found: error
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
